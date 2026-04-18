@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Game Hub Fullscreen</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: Arial;
+}
+
+/* LOGIN */
+.container {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #111;
+}
+
+.box {
+  background: #222;
+  padding: 20px;
+  border-radius: 10px;
+  width: 320px;
+  color: white;
+}
+
+input, select, textarea, button {
+  width: 100%;
+  padding: 8px;
+  margin: 5px 0;
+}
+
+/* HOME */
+#home {
+  display: none;
+  height: 100vh;
+  background: #1a1a1a;
+  color: white;
+  flex-direction: column;
+}
+
+/* TOPBAR */
+#topbar {
+  background: black;
+  padding: 10px;
+  display: flex;
+  gap: 10px;
+}
+
+#topbar button {
+  width: auto;
+}
+
+/* PAGES */
+.page {
+  display: none;
+  padding: 20px;
+}
+
+/* GAME LIST */
+.game {
+  background: #333;
+  padding: 10px;
+  margin: 10px 0;
+  cursor: pointer;
+}
+
+/* GAME VIEW */
+#gameFrame {
+  width: 100%;
+  height: 70vh;
+  border: none;
+}
+
+/* FULLSCREEN MODE */
+#gameView.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: black;
+  z-index: 9999;
+  padding: 0;
+}
+
+#gameView.fullscreen iframe {
+  width: 100%;
+  height: 100%;
+}
+
+#gameView.fullscreen button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: auto;
+  z-index: 10000;
+}
+
+/* ANNOUNCEMENT */
+#announcementBar {
+  background: red;
+  color: white;
+  padding: 10px;
+  text-align: center;
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div class="container" id="loginPage">
+  <div class="box">
+
+    <h2>Sign Up</h2>
+    <input id="su_user" placeholder="Username">
+    <input id="su_pass" type="password">
+    <input id="su_dob" type="date">
+
+    <select id="su_gender">
+      <option value="">Gender</option>
+      <option>Male</option>
+      <option>Female</option>
+      <option>Other</option>
+    </select>
+
+    <button onclick="signup()">Sign Up</button>
+
+    <hr>
+
+    <h2>Login</h2>
+    <input id="li_user" placeholder="Username">
+    <input id="li_pass" type="password">
+
+    <button onclick="login()">Login</button>
+
+  </div>
+</div>
+
+<!-- HOME -->
+<div id="home">
+
+  <div id="announcementBar">No announcements</div>
+
+  <div id="topbar">
+    <button onclick="showPage('homePage')">Home</button>
+    <button onclick="showGames()">Games</button>
+    <button onclick="openAdmin()">Admin</button>
+    <button onclick="logout()">Logout</button>
+  </div>
+
+  <!-- HOME -->
+  <div id="homePage" class="page">
+    <h1>🏠 Home</h1>
+  </div>
+
+  <!-- GAMES -->
+  <div id="gamesPage" class="page">
+    <h1>🎮 Games</h1>
+    <div id="gameList"></div>
+  </div>
+
+  <!-- GAME VIEW -->
+  <div id="gameView" class="page">
+    <h1 id="gameTitle"></h1>
+
+    <button onclick="toggleFullscreen()">⛶ Full Screen</button>
+
+    <iframe id="gameFrame"></iframe>
+  </div>
+
+  <!-- ADMIN -->
+  <div id="adminPanel" class="page">
+    <h1>🔒 Admin Panel</h1>
+
+    <textarea id="announceInput" placeholder="Announcement"></textarea>
+    <button onclick="setAnnouncement()">Set Announcement</button>
+    <button onclick="removeAnnouncement()">Remove Announcement</button>
+
+    <hr>
+
+    <input type="file" id="fileInput" accept=".html">
+    <button onclick="uploadGame()">Upload Game</button>
+
+    <h3>Games</h3>
+    <div id="adminGames"></div>
+  </div>
+
+</div>
+
+<script>
+const ADMIN_USER = "owner";
+
+let currentUser = "";
+let games = JSON.parse(localStorage.getItem("games") || "[]");
+
+/* ANNOUNCEMENT */
+function setAnnouncement() {
+  let msg = document.getElementById("announceInput").value;
+  localStorage.setItem("announcement", msg);
+  loadAnnouncement();
+}
+
+function removeAnnouncement() {
+  localStorage.removeItem("announcement");
+  loadAnnouncement();
+}
+
+function loadAnnouncement() {
+  let msg = localStorage.getItem("announcement") || "No announcements";
+  document.getElementById("announcementBar").innerText = msg;
+}
+
+/* SIGNUP */
+function signup() {
+  let user = document.getElementById("su_user").value.trim().toLowerCase();
+  let pass = document.getElementById("su_pass").value;
+  let dob = document.getElementById("su_dob").value;
+  let gender = document.getElementById("su_gender").value;
+
+  localStorage.setItem("user_" + user, JSON.stringify({
+    password: pass,
+    dob: dob,
+    gender: gender
+  }));
+
+  alert("Account created ✔️");
+}
+
+/* LOGIN */
+function login() {
+  let user = document.getElementById("li_user").value.trim().toLowerCase();
+  let pass = document.getElementById("li_pass").value;
+
+  let stored = localStorage.getItem("user_" + user);
+
+  if (!stored) return alert("User not found ❌");
+
+  let data = JSON.parse(stored);
+
+  if (data.password !== pass) return alert("Wrong password ❌");
+
+  currentUser = user;
+
+  document.getElementById("loginPage").style.display = "none";
+  document.getElementById("home").style.display = "flex";
+
+  loadAnnouncement();
+  showPage("homePage");
+}
+
+/* NAV */
+function showPage(page) {
+  document.querySelectorAll(".page").forEach(p => p.style.display = "none");
+  document.getElementById(page).style.display = "block";
+
+  loadAnnouncement();
+}
+
+/* GAMES */
+function showGames() {
+  showPage("gamesPage");
+
+  let list = document.getElementById("gameList");
+  list.innerHTML = "";
+
+  games.forEach((g, i) => {
+    let div = document.createElement("div");
+    div.className = "game";
+    div.innerText = g.name;
+    div.onclick = () => openGame(i);
+    list.appendChild(div);
+  });
+}
+
+function openGame(i) {
+  let g = games[i];
+
+  showPage("gameView");
+  document.getElementById("gameTitle").innerText = g.name;
+
+  let blob = new Blob([g.html], { type: "text/html" });
+  document.getElementById("gameFrame").src = URL.createObjectURL(blob);
+
+  loadAnnouncement();
+}
+
+/* FULLSCREEN */
+function toggleFullscreen() {
+  let view = document.getElementById("gameView");
+
+  if (!document.fullscreenElement) {
+    view.requestFullscreen();
+    view.classList.add("fullscreen");
+  } else {
+    document.exitFullscreen();
+    view.classList.remove("fullscreen");
+  }
+}
+
+/* ADMIN */
+function openAdmin() {
+  if (currentUser !== ADMIN_USER) return alert("Not admin ❌");
+
+  showPage("adminPanel");
+  renderAdmin();
+}
+
+function uploadGame() {
+  let file = document.getElementById("fileInput").files[0];
+  if (!file) return alert("Select file");
+
+  let reader = new FileReader();
+
+  reader.onload = function(e) {
+    games.push({ name: file.name, html: e.target.result });
+    localStorage.setItem("games", JSON.stringify(games));
+    renderAdmin();
+  };
+
+  reader.readAsText(file);
+}
+
+function renderAdmin() {
+  let box = document.getElementById("adminGames");
+  box.innerHTML = "";
+
+  games.forEach((g, i) => {
+    let div = document.createElement("div");
+    div.className = "game";
+    div.innerText = "Delete: " + g.name;
+
+    div.onclick = () => {
+      games.splice(i, 1);
+      localStorage.setItem("games", JSON.stringify(games));
+      renderAdmin();
+    };
+
+    box.appendChild(div);
+  });
+}
+
+/* LOGOUT */
+function logout() {
+  location.reload();
+}
+</script>
+
+</body>
+</html>
