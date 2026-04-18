@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Game Hub Pro</title>
+
+<style>
+body { margin:0; font-family:Arial; background:#111; color:white; }
+
+#auth {
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
+}
+
+.box {
+  background:#222;
+  padding:20px;
+  width:300px;
+  border-radius:10px;
+}
+
+input, button, textarea {
+  width:100%;
+  margin:5px 0;
+  padding:8px;
+}
+
+#main {
+  display:none;
+  flex-direction:column;
+  height:100vh;
+}
+
+#topbar {
+  background:black;
+  padding:10px;
+  display:flex;
+  gap:10px;
+}
+
+#announcement {
+  background:red;
+  padding:10px;
+  text-align:center;
+}
+
+.page { display:none; padding:20px; }
+
+/* GRID */
+#gameGrid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(160px, 1fr));
+  gap:10px;
+}
+
+.card {
+  background:#333;
+  border-radius:10px;
+  overflow:hidden;
+  cursor:pointer;
+}
+
+.card img {
+  width:100%;
+  height:100px;
+  object-fit:cover;
+}
+
+.card div {
+  padding:5px;
+  text-align:center;
+}
+
+iframe {
+  width:100%;
+  height:70vh;
+  border:none;
+}
+
+/* CHAT */
+#chatBox {
+  height:250px;
+  overflow-y:auto;
+  background:#222;
+  padding:10px;
+}
+</style>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="auth">
+  <div class="box">
+    <h2>Login</h2>
+    <input id="username" placeholder="Username">
+    <input id="password" type="password">
+
+    <button onclick="signup()">Sign Up</button>
+    <button onclick="login()">Login</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+<div id="announcement">Loading...</div>
+
+<div id="topbar">
+  <button onclick="show('home')">Home</button>
+  <button onclick="show('games')">Games</button>
+  <button onclick="show('chat')">Chat</button>
+  <button onclick="openProfile()">Profile</button>
+  <button id="adminBtn" onclick="openAdmin()">Admin</button>
+  <button onclick="logout()">Logout</button>
+</div>
+
+<!-- HOME -->
+<div id="home" class="page">
+  <h2>Welcome</h2>
+  <h3>Online Players: <span id="count">0</span></h3>
+</div>
+
+<!-- GAMES -->
+<div id="games" class="page">
+  <h2>Games</h2>
+  <div id="gameGrid"></div>
+</div>
+
+<!-- PLAY -->
+<div id="play" class="page">
+  <iframe id="frame"></iframe>
+</div>
+
+<!-- CHAT -->
+<div id="chat" class="page">
+  <h2>Chat</h2>
+  <div id="chatBox"></div>
+  <input id="msg">
+  <button onclick="sendMsg()">Send</button>
+</div>
+
+<!-- PROFILE -->
+<div id="profile" class="page">
+  <h2>Profile</h2>
+  <p id="pname"></p>
+  <textarea id="bio"></textarea>
+  <button onclick="saveBio()">Save</button>
+</div>
+
+<!-- ADMIN -->
+<div id="admin" class="page">
+  <h2>OWNER PANEL</h2>
+
+  <textarea id="ann"></textarea>
+  <button onclick="setAnn()">Announcement</button>
+
+  <input id="gameFile" type="file">
+  <input id="thumbFile" type="file">
+  <button onclick="uploadGame()">Upload Game</button>
+
+  <h3>Ban User</h3>
+  <input id="banInput">
+  <button onclick="banUser()">Ban</button>
+
+  <h3>Kick User</h3>
+  <input id="kickInput">
+  <button onclick="kickUser()">Kick</button>
+
+  <h3>Delete Games</h3>
+  <div id="adminGames"></div>
+
+  <h3>Online Users</h3>
+  <div id="users"></div>
+</div>
+
+</div>
+
+<script>
+// FIREBASE
+const firebaseConfig = {
+  apiKey: "AIzaSyCa_6ibc9IYW2U_4NRaPUuwsQ9INOgzSlM",
+  authDomain: "hubby-c5ff6.firebaseapp.com",
+  projectId: "hubby-c5ff6",
+  storageBucket: "hubby-c5ff6.firebasestorage.app",
+  messagingSenderId: "1062150257550",
+  appId: "1:1062150257550:web:3d3adfc1276233086ac2df",
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.firestore();
+const rtdb = firebase.database();
+
+const OWNER = "owner";
+let currentUser = "";
+
+/* LOGIN SYSTEM */
+function makeEmail(u){ return u + "@gamehub.com"; }
+
+function signup(){
+  auth.createUserWithEmailAndPassword(makeEmail(username.value), password.value);
+}
+
+function login(){
+  auth.signInWithEmailAndPassword(makeEmail(username.value), password.value);
+}
+
+function logout(){ auth.signOut(); }
+
+/* AUTH STATE */
+auth.onAuthStateChanged(async user=>{
+  if(!user) return;
+
+  currentUser = user.email.split("@")[0];
+
+  // BAN CHECK
+  let ban = await db.collection("banned").doc(currentUser).get();
+  if(ban.exists){
+    alert("You are banned ❌");
+    auth.signOut();
+    location.reload();
+    return;
+  }
+
+  document.getElementById("auth").style.display="none";
+  document.getElementById("main").style.display="flex";
+
+  if(currentUser !== OWNER){
+    adminBtn.style.display="none";
+  }
+
+  setOnline();
+  loadGames();
+  loadChat();
+  loadAnnouncement();
+  trackOnline();
+  createProfileIfNotExists();
+  listenKick();
+
+  show("home");
+});
+
+/* NAV */
+function show(p){
+  document.querySelectorAll(".page").forEach(x=>x.style.display="none");
+  document.getElementById(p).style.display="block";
+}
+
+/* OWNER CHECK */
+function isOwner(){ return currentUser === OWNER; }
+
+function openAdmin(){
+  if(!isOwner()) return alert("No access");
+  show("admin");
+}
+
+/* ANNOUNCEMENT */
+function setAnn(){
+  if(!isOwner()) return;
+  db.collection("global").doc("announcement").set({text:ann.value});
+}
+
+function loadAnnouncement(){
+  db.collection("global").doc("announcement")
+  .onSnapshot(d=>{
+    announcement.innerText = d.exists ? d.data().text : "";
+  });
+}
+
+/* GAMES + THUMBNAILS */
+function uploadGame(){
+  if(!isOwner()) return;
+
+  let g = gameFile.files[0];
+  let t = thumbFile.files[0];
+
+  let rg = new FileReader();
+  let rt = new FileReader();
+
+  rg.onload = e=>{
+    rt.onload = timg=>{
+      db.collection("games").add({
+        name:g.name,
+        html:e.target.result,
+        thumb:timg.target.result || ""
+      });
+    };
+    if(t) rt.readAsDataURL(t);
+    else rt.onload({target:{result:""}});
+  };
+
+  rg.readAsText(g);
+}
+
+function loadGames(){
+  db.collection("games").onSnapshot(snap=>{
+    gameGrid.innerHTML="";
+    adminGames.innerHTML="";
+
+    snap.forEach(doc=>{
+      let g = doc.data();
+
+      let card=document.createElement("div");
+      card.className="card";
+
+      card.innerHTML=`
+        <img src="${g.thumb || 'https://via.placeholder.com/150'}">
+        <div>${g.name}</div>
+      `;
+
+      card.onclick=()=>{
+        show("play");
+        let blob=new Blob([g.html],{type:"text/html"});
+        frame.src=URL.createObjectURL(blob);
+      };
+
+      gameGrid.appendChild(card);
+
+      if(isOwner()){
+        let del=document.createElement("div");
+        del.className="card";
+        del.innerText="DELETE "+g.name;
+        del.onclick=()=>db.collection("games").doc(doc.id).delete();
+        adminGames.appendChild(del);
+      }
+    });
+  });
+}
+
+/* BAN (FIXED) */
+function banUser(){
+  if(!isOwner()) return;
+  db.collection("banned").doc(banInput.value).set({banned:true});
+}
+
+/* KICK (FIXED REAL-TIME) */
+function kickUser(){
+  if(!isOwner()) return;
+  rtdb.ref("kick/"+kickInput.value).set(true);
+}
+
+/* KICK LISTENER */
+function listenKick(){
+  rtdb.ref("kick/"+currentUser).on("value",snap=>{
+    if(snap.val()){
+      alert("Kicked by owner");
+      auth.signOut();
+      location.reload();
+    }
+  });
+}
+
+/* PROFILE SYSTEM */
+function createProfileIfNotExists(){
+  db.collection("users").doc(currentUser).get().then(d=>{
+    if(!d.exists){
+      db.collection("users").doc(currentUser).set({
+        username:currentUser,
+        bio:""
+      });
+    }
+  });
+}
+
+function openProfile(){
+  show("profile");
+
+  db.collection("users").doc(currentUser).get().then(d=>{
+    pname.innerText="User: "+currentUser;
+    bio.value=d.data().bio || "";
+  });
+}
+
+function saveBio(){
+  db.collection("users").doc(currentUser).update({
+    bio:bio.value
+  });
+}
+
+/* ONLINE */
+function setOnline(){
+  rtdb.ref("online/"+currentUser).set(true);
+  rtdb.ref("online/"+currentUser).onDisconnect().remove();
+}
+
+function trackOnline(){
+  rtdb.ref("online").on("value",snap=>{
+    let d=snap.val()||{};
+    count.innerText=Object.keys(d).length;
+
+    if(isOwner()){
+      users.innerHTML=Object.keys(d).join("<br>");
+    }
+  });
+}
+
+/* CHAT */
+function sendMsg(){
+  db.collection("chat").add({
+    user:currentUser,
+    msg:msg.value,
+    time:Date.now()
+  });
+  msg.value="";
+}
+
+function loadChat(){
+  db.collection("chat").orderBy("time")
+  .onSnapshot(snap=>{
+    chatBox.innerHTML="";
+    snap.forEach(d=>{
+      let c=d.data();
+      chatBox.innerHTML+=c.user+": "+c.msg+"<br>";
+    });
+  });
+}
+</script>
+
+</body>
+</html>
