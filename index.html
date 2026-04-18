@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Roblox Style Hub</title>
+
+<style>
+body { margin:0; font-family:Arial; background:#111; color:white; }
+
+#auth { display:flex; justify-content:center; align-items:center; height:100vh; }
+.box { background:#222; padding:20px; width:300px; border-radius:10px; }
+
+input, button, textarea { width:100%; margin:5px 0; padding:8px; }
+
+#main { display:none; flex-direction:column; height:100vh; }
+
+#topbar { background:black; padding:10px; display:flex; gap:10px; }
+
+#announcement { background:red; padding:10px; text-align:center; }
+
+/* GRID (ROBLOX STYLE) */
+#gameGrid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(160px, 1fr));
+  gap:10px;
+  padding:10px;
+}
+
+.card {
+  background:#333;
+  padding:10px;
+  border-radius:10px;
+  cursor:pointer;
+  text-align:center;
+  transition:0.2s;
+}
+
+.card:hover {
+  background:#444;
+  transform:scale(1.03);
+}
+
+.page { display:none; padding:20px; }
+
+iframe { width:100%; height:70vh; border:none; }
+
+/* CHAT */
+#chatBox {
+  height:250px;
+  overflow-y:auto;
+  background:#222;
+  padding:10px;
+}
+</style>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+</head>
+
+<body>
+
+<!-- AUTH -->
+<div id="auth">
+  <div class="box">
+    <h2>Login</h2>
+    <input id="username" placeholder="Username">
+    <input id="password" type="password" placeholder="Password">
+
+    <button onclick="signup()">Sign Up</button>
+    <button onclick="login()">Login</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+<div id="announcement">Loading...</div>
+
+<div id="topbar">
+  <button onclick="show('home')">Home</button>
+  <button onclick="show('games')">Games</button>
+  <button id="adminBtn" onclick="openAdmin()">Admin</button>
+  <button onclick="show('chat')">Chat</button>
+  <button onclick="logout()">Logout</button>
+</div>
+
+<!-- HOME -->
+<div id="home" class="page">
+  <h2>🏠 Home</h2>
+  <h3>Players Online: <span id="count">0</span></h3>
+</div>
+
+<!-- GAMES -->
+<div id="games" class="page">
+  <h2>🎮 Games</h2>
+  <div id="gameGrid"></div>
+</div>
+
+<!-- PLAY -->
+<div id="play" class="page">
+  <iframe id="frame"></iframe>
+</div>
+
+<!-- CHAT -->
+<div id="chat" class="page">
+  <h2>💬 Chat</h2>
+  <div id="chatBox"></div>
+  <input id="msg">
+  <button onclick="sendMsg()">Send</button>
+</div>
+
+<!-- ADMIN -->
+<div id="admin" class="page">
+  <h2>OWNER ADMIN PANEL</h2>
+
+  <textarea id="ann"></textarea>
+  <button onclick="setAnn()">Announcement</button>
+
+  <input type="file" id="file">
+  <button onclick="uploadGame()">Upload Game</button>
+
+  <h3>Ban User</h3>
+  <input id="banUser" placeholder="username">
+  <button onclick="banUser()">Ban</button>
+
+  <h3>Kick User</h3>
+  <input id="kickUser" placeholder="username">
+  <button onclick="kickUser()">Kick</button>
+
+  <h3>Online Users</h3>
+  <div id="users"></div>
+
+  <h3>Delete Games</h3>
+  <div id="adminGames"></div>
+</div>
+
+</div>
+
+<script>
+// FIREBASE
+const firebaseConfig = {
+  apiKey: "AIzaSyCa_6ibc9IYW2U_4NRaPUuwsQ9INOgzSlM",
+  authDomain: "hubby-c5ff6.firebaseapp.com",
+  projectId: "hubby-c5ff6",
+  storageBucket: "hubby-c5ff6.firebasestorage.app",
+  messagingSenderId: "1062150257550",
+  appId: "1:1062150257550:web:3d3adfc1276233086ac2df",
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.firestore();
+const rtdb = firebase.database();
+
+const OWNER = "owner";
+let currentUser = "";
+
+/* USERNAME LOGIN */
+function makeEmail(u){ return u+"@gamehub.com"; }
+
+function signup(){
+  auth.createUserWithEmailAndPassword(
+    makeEmail(username.value),
+    password.value
+  );
+}
+
+function login(){
+  auth.signInWithEmailAndPassword(
+    makeEmail(username.value),
+    password.value
+  );
+}
+
+function logout(){ auth.signOut(); }
+
+/* AUTH */
+auth.onAuthStateChanged(async user=>{
+  if(!user) return;
+
+  currentUser = user.email.split("@")[0];
+
+  // BAN CHECK
+  let banned = await db.collection("banned").doc(currentUser).get();
+  if(banned.exists){
+    alert("You are banned ❌");
+    logout();
+    return;
+  }
+
+  document.getElementById("auth").style.display="none";
+  document.getElementById("main").style.display="flex";
+
+  if(currentUser !== OWNER){
+    document.getElementById("adminBtn").style.display="none";
+  }
+
+  setOnline();
+  loadAnnouncement();
+  loadGames();
+  loadChat();
+  trackPlayers();
+
+  show("home");
+});
+
+/* NAV */
+function show(p){
+  document.querySelectorAll(".page").forEach(x=>x.style.display="none");
+  document.getElementById(p).style.display="block";
+}
+
+/* OWNER CHECK */
+function isOwner(){ return currentUser === OWNER; }
+
+/* ADMIN */
+function openAdmin(){
+  if(!isOwner()) return alert("No access");
+  show("admin");
+}
+
+/* ANNOUNCEMENT */
+function setAnn(){
+  if(!isOwner()) return;
+
+  db.collection("global").doc("announcement").set({
+    text: ann.value
+  });
+}
+
+function loadAnnouncement(){
+  db.collection("global").doc("announcement")
+  .onSnapshot(d=>{
+    announcement.innerText = d.exists ? d.data().text : "No announcements";
+  });
+}
+
+/* GAMES GRID */
+function loadGames(){
+  db.collection("games").onSnapshot(snap=>{
+    let grid = gameGrid;
+    let adminList = adminGames;
+
+    grid.innerHTML="";
+    adminList.innerHTML="";
+
+    snap.forEach(doc=>{
+      let g = doc.data();
+
+      let card = document.createElement("div");
+      card.className="card";
+      card.innerText=g.name;
+
+      card.onclick=()=>{
+        show("play");
+        let blob=new Blob([g.html],{type:"text/html"});
+        frame.src=URL.createObjectURL(blob);
+      };
+
+      grid.appendChild(card);
+
+      if(isOwner()){
+        let del = document.createElement("div");
+        del.className="card";
+        del.innerText="DELETE: "+g.name;
+        del.onclick=()=>db.collection("games").doc(doc.id).delete();
+        adminList.appendChild(del);
+      }
+    });
+  });
+}
+
+/* UPLOAD */
+function uploadGame(){
+  if(!isOwner()) return;
+
+  let file = document.getElementById("file").files[0];
+  let reader = new FileReader();
+
+  reader.onload=e=>{
+    db.collection("games").add({
+      name:file.name,
+      html:e.target.result
+    });
+  };
+
+  reader.readAsText(file);
+}
+
+/* BAN SYSTEM */
+function banUser(){
+  if(!isOwner()) return;
+
+  db.collection("banned").doc(banUser.value).set({banned:true});
+}
+
+/* KICK SYSTEM */
+function kickUser(){
+  if(!isOwner()) return;
+
+  rtdb.ref("kick/"+kickUser.value).set(true);
+}
+
+/* ONLINE PLAYERS */
+function setOnline(){
+  rtdb.ref("online/"+currentUser).set(true);
+  rtdb.ref("online/"+currentUser).onDisconnect().remove();
+}
+
+function trackPlayers(){
+  rtdb.ref("online").on("value",snap=>{
+    let data=snap.val()||{};
+    let users=Object.keys(data);
+
+    count.innerText=users.length;
+
+    if(isOwner()){
+      usersBox.innerHTML = users.join("<br>");
+    }
+  });
+}
+
+/* CHAT */
+function sendMsg(){
+  db.collection("chat").add({
+    user:currentUser,
+    msg:msg.value,
+    time:Date.now()
+  });
+
+  msg.value="";
+}
+
+function loadChat(){
+  db.collection("chat").orderBy("time")
+  .onSnapshot(snap=>{
+    chatBox.innerHTML="";
+    snap.forEach(d=>{
+      let c=d.data();
+      chatBox.innerHTML += c.user+": "+c.msg+"<br>";
+    });
+  });
+}
+</script>
+
+</body>
+</html>
