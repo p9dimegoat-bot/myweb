@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Game Hub Pro</title>
+
+<style>
+body { margin:0; font-family:Arial; background:#111; color:white; }
+
+#auth { display:flex; justify-content:center; align-items:center; height:100vh; }
+.box { background:#222; padding:20px; width:300px; border-radius:10px; }
+
+input, button, textarea { width:100%; margin:5px 0; padding:8px; }
+
+#main { display:none; flex-direction:column; height:100vh; }
+
+#topbar { background:black; padding:10px; }
+
+.page { display:none; padding:20px; }
+
+.game { background:#333; padding:10px; margin:5px; cursor:pointer; }
+
+iframe { width:100%; height:60vh; border:none; }
+
+#announcement { background:red; padding:10px; text-align:center; }
+
+/* CHAT */
+#chatBox {
+  height:200px;
+  overflow-y:auto;
+  background:#222;
+  padding:10px;
+  margin-top:10px;
+}
+
+#chatInput {
+  display:flex;
+  gap:5px;
+}
+</style>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="auth">
+  <div class="box">
+    <h2>Login</h2>
+    <input id="username" placeholder="Username">
+    <input id="password" type="password" placeholder="Password">
+
+    <button onclick="signup()">Sign Up</button>
+    <button onclick="login()">Login</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+<div id="announcement">Loading...</div>
+
+<div id="topbar">
+  <button onclick="show('home')">Home</button>
+  <button onclick="show('games')">Games</button>
+  <button onclick="openAdmin()">Admin</button>
+  <button onclick="show('chat')">Chat</button>
+  <button onclick="logout()">Logout</button>
+</div>
+
+<!-- HOME -->
+<div id="home" class="page">
+  <h2>Welcome</h2>
+</div>
+
+<!-- GAMES -->
+<div id="games" class="page">
+  <h2>Games</h2>
+  <div id="gameList"></div>
+</div>
+
+<!-- PLAY -->
+<div id="play" class="page">
+  <iframe id="frame"></iframe>
+</div>
+
+<!-- CHAT -->
+<div id="chat" class="page">
+  <h2>💬 Live Chat</h2>
+
+  <div id="chatBox"></div>
+
+  <div id="chatInput">
+    <input id="msg" placeholder="Type message...">
+    <button onclick="sendMsg()">Send</button>
+  </div>
+</div>
+
+<!-- ADMIN (HIDDEN FOR NON-OWNER) -->
+<div id="admin" class="page">
+  <h2>Admin Panel (OWNER ONLY)</h2>
+
+  <h3>Announcement</h3>
+  <textarea id="ann"></textarea>
+  <button onclick="setAnn()">Set Announcement</button>
+
+  <h3>Upload Game</h3>
+  <input type="file" id="file">
+  <button onclick="uploadGame()">Upload Game</button>
+
+  <h3>Manage Games</h3>
+  <div id="adminGames"></div>
+</div>
+
+</div>
+
+<script>
+// 🔥 FIREBASE
+const firebaseConfig = {
+  apiKey: "AIzaSyCa_6ibc9IYW2U_4NRaPUuwsQ9INOgzSlM",
+  authDomain: "hubby-c5ff6.firebaseapp.com",
+  projectId: "hubby-c5ff6",
+  storageBucket: "hubby-c5ff6.firebasestorage.app",
+  messagingSenderId: "1062150257550",
+  appId: "1:1062150257550:web:3d3adfc1276233086ac2df",
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.firestore();
+const rtdb = firebase.database();
+
+const OWNER_USERNAME = "owner";
+
+let currentUser = "";
+
+/* USERNAME LOGIN */
+function makeEmail(u){
+  return u + "@gamehub.com";
+}
+
+function signup(){
+  let u = document.getElementById("username").value;
+  let p = document.getElementById("password").value;
+
+  auth.createUserWithEmailAndPassword(makeEmail(u), p)
+  .catch(e=>alert(e.message));
+}
+
+function login(){
+  let u = document.getElementById("username").value;
+  let p = document.getElementById("password").value;
+
+  auth.signInWithEmailAndPassword(makeEmail(u), p)
+  .catch(e=>alert(e.message));
+}
+
+/* LOGOUT */
+function logout(){
+  auth.signOut();
+}
+
+/* AUTH */
+auth.onAuthStateChanged(user=>{
+  if(user){
+    currentUser = user.email.split("@")[0];
+
+    document.getElementById("auth").style.display="none";
+    document.getElementById("main").style.display="flex";
+
+    setOnline();
+    loadAnnouncement();
+    loadGames();
+    loadChat();
+    trackUsers();
+
+    show("home");
+  } else {
+    document.getElementById("auth").style.display="flex";
+    document.getElementById("main").style.display="none";
+  }
+});
+
+/* NAV */
+function show(p){
+  document.querySelectorAll(".page").forEach(x=>x.style.display="none");
+  document.getElementById(p).style.display="block";
+}
+
+/* OWNER CHECK */
+function isOwner(){
+  return currentUser === OWNER_USERNAME;
+}
+
+/* 🔒 ADMIN LOCK */
+function openAdmin(){
+  if(!isOwner()){
+    alert("Only owner can access admin ❌");
+    return;
+  }
+  show("admin");
+}
+
+/* ANNOUNCEMENTS */
+function setAnn(){
+  if(!isOwner()) return;
+
+  db.collection("global").doc("announcement").set({
+    text: document.getElementById("ann").value
+  });
+}
+
+function loadAnnouncement(){
+  db.collection("global").doc("announcement")
+  .onSnapshot(doc=>{
+    document.getElementById("announcement").innerText =
+      doc.exists ? doc.data().text : "No announcements";
+  });
+}
+
+/* GAMES */
+function uploadGame(){
+  if(!isOwner()) return;
+
+  let file = document.getElementById("file").files[0];
+
+  let reader = new FileReader();
+
+  reader.onload = function(e){
+    db.collection("games").add({
+      name: file.name,
+      html: e.target.result
+    });
+  };
+
+  reader.readAsText(file);
+}
+
+/* DELETE GAME (OWNER ONLY) */
+function deleteGame(id){
+  if(!isOwner()) return;
+
+  db.collection("games").doc(id).delete();
+}
+
+function loadGames(){
+  db.collection("games").onSnapshot(snap=>{
+    let list = document.getElementById("gameList");
+    let adminList = document.getElementById("adminGames");
+
+    list.innerHTML = "";
+    adminList.innerHTML = "";
+
+    snap.forEach(doc=>{
+      let g = doc.data();
+
+      // PLAY LIST
+      let div = document.createElement("div");
+      div.className="game";
+      div.innerText=g.name;
+
+      div.onclick=()=>{
+        show("play");
+        let blob=new Blob([g.html],{type:"text/html"});
+        document.getElementById("frame").src=URL.createObjectURL(blob);
+      };
+
+      list.appendChild(div);
+
+      // ADMIN DELETE LIST
+      if(isOwner()){
+        let del = document.createElement("div");
+        del.className="game";
+        del.innerText="DELETE: " + g.name;
+
+        del.onclick=()=>deleteGame(doc.id);
+
+        adminList.appendChild(del);
+      }
+    });
+  });
+}
+
+/* 🔴 ONLINE USERS */
+function setOnline(){
+  rtdb.ref("online/" + currentUser).set(true);
+  rtdb.ref("online/" + currentUser).onDisconnect().remove();
+}
+
+function trackUsers(){
+  rtdb.ref("online").on("value", snap=>{
+    let data = snap.val() || {};
+    console.log("Online:", Object.keys(data).length);
+  });
+}
+
+/* 💬 CHAT */
+function sendMsg(){
+  let msg = document.getElementById("msg").value;
+
+  if(!msg) return;
+
+  db.collection("chat").add({
+    user: currentUser,
+    msg: msg,
+    time: Date.now()
+  });
+
+  document.getElementById("msg").value="";
+}
+
+function loadChat(){
+  db.collection("chat").orderBy("time")
+  .onSnapshot(snap=>{
+    let box = document.getElementById("chatBox");
+    box.innerHTML="";
+
+    snap.forEach(doc=>{
+      let c = doc.data();
+
+      let div = document.createElement("div");
+      div.innerText = c.user + ": " + c.msg;
+
+      box.appendChild(div);
+    });
+
+    box.scrollTop = box.scrollHeight;
+  });
+}
+</script>
+
+</body>
+</html>
