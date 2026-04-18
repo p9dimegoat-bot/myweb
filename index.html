@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Game Hub Stable Full</title>
+
+<style>
+body{
+  margin:0;
+  font-family:Arial;
+  background:#111;
+  color:white;
+}
+
+#auth{
+  display:flex;
+  height:100vh;
+  justify-content:center;
+  align-items:center;
+}
+
+.box{
+  background:#222;
+  padding:20px;
+  width:300px;
+  border-radius:10px;
+}
+
+input,button,textarea{
+  width:100%;
+  margin:5px 0;
+  padding:8px;
+}
+
+#main{
+  display:none;
+  flex-direction:column;
+  height:100vh;
+}
+
+#topbar{
+  background:black;
+  padding:10px;
+  display:flex;
+  gap:10px;
+}
+
+.page{ display:none; padding:20px; }
+
+#gameGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+  gap:10px;
+}
+
+.card{
+  background:#333;
+  border-radius:10px;
+  overflow:hidden;
+  cursor:pointer;
+  text-align:center;
+}
+
+.card img{
+  width:100%;
+  height:100px;
+  object-fit:cover;
+}
+
+iframe{
+  width:100%;
+  height:70vh;
+  border:none;
+}
+
+#annBar{
+  background:red;
+  text-align:center;
+  padding:6px;
+  font-weight:bold;
+}
+
+/* OWNER BUTTON */
+#addGameBtn{
+  position:fixed;
+  bottom:20px;
+  right:20px;
+  width:55px;
+  height:55px;
+  border:none;
+  border-radius:10px;
+  background:red;
+  color:white;
+  font-size:30px;
+  cursor:pointer;
+  display:none;
+}
+
+/* UPLOAD BOX */
+#uploadBox{
+  display:none;
+  position:fixed;
+  top:20%;
+  left:50%;
+  transform:translateX(-50%);
+  background:#222;
+  padding:15px;
+  width:300px;
+  border-radius:10px;
+}
+</style>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="auth">
+  <div class="box">
+    <h2>Login</h2>
+    <input id="username" placeholder="Username">
+    <input id="password" type="password">
+
+    <button onclick="signup()">Sign Up</button>
+    <button onclick="login()">Login</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+<div id="annBar">Loading announcement...</div>
+
+<div id="topbar">
+  <button onclick="show('home')">Home</button>
+  <button onclick="show('games')">Games</button>
+  <button onclick="show('chat')">Chat</button>
+  <button onclick="show('profile')">Profile</button>
+</div>
+
+<!-- HOME -->
+<div id="home" class="page">
+  <h2>Online: <span id="count">0</span></h2>
+</div>
+
+<!-- GAMES -->
+<div id="games" class="page">
+  <div id="gameGrid"></div>
+</div>
+
+<!-- PLAY -->
+<div id="play" class="page">
+  <button onclick="frame.requestFullscreen()">Fullscreen</button>
+  <iframe id="frame"></iframe>
+</div>
+
+<!-- CHAT -->
+<div id="chat" class="page">
+  <div id="chatBox" style="height:250px;overflow:auto;background:#222;padding:10px;"></div>
+  <input id="msg">
+  <button onclick="sendMsg()">Send</button>
+</div>
+
+<!-- PROFILE -->
+<div id="profile" class="page">
+  <h2>Profile</h2>
+  <p id="pname"></p>
+  <textarea id="bio"></textarea>
+  <button onclick="saveBio()">Save</button>
+</div>
+
+</div>
+
+<!-- OWNER BUTTON -->
+<button id="addGameBtn" onclick="openUpload()">+</button>
+
+<!-- UPLOAD BOX -->
+<div id="uploadBox">
+  <h3>Upload Game</h3>
+
+  <input id="gameName" placeholder="Game Name">
+  <input id="gameFile" type="file">
+  <input id="thumbFile" type="file">
+
+  <button onclick="submitGame()">Upload</button>
+  <button onclick="closeUpload()">Cancel</button>
+</div>
+
+<script>
+// FIREBASE
+const firebaseConfig = {
+  apiKey: "AIzaSyCa_6ibc9IYW2U_4NRaPUuwsQ9INOgzSlM",
+  authDomain: "hubby-c5ff6.firebaseapp.com",
+  projectId: "hubby-c5ff6",
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.firestore();
+const rtdb = firebase.database();
+
+let currentUser="";
+
+/* LOGIN */
+function makeEmail(u){
+  return u.trim().toLowerCase()+"@gamehub.com";
+}
+
+function signup(){
+  auth.createUserWithEmailAndPassword(makeEmail(username.value),password.value);
+}
+
+function login(){
+  auth.signInWithEmailAndPassword(makeEmail(username.value),password.value);
+}
+
+/* AUTH */
+auth.onAuthStateChanged(user=>{
+  if(!user)return;
+
+  currentUser=user.email.split("@")[0].toLowerCase();
+
+  document.getElementById("auth").style.display="none";
+  document.getElementById("main").style.display="flex";
+
+  if(currentUser==="owner"){
+    document.getElementById("addGameBtn").style.display="block";
+  }
+
+  setOnline();
+  loadGames();
+  loadChat();
+  loadAnnouncement();
+  trackOnline();
+
+  show("home");
+});
+
+/* NAV */
+function show(p){
+  document.querySelectorAll(".page").forEach(x=>x.style.display="none");
+  document.getElementById(p).style.display="block";
+
+  if(p!=="play"){
+    frame.src="";
+  }
+}
+
+/* ================= OWNER UPLOAD SYSTEM ================= */
+function openUpload(){
+  uploadBox.style.display="block";
+}
+
+function closeUpload(){
+  uploadBox.style.display="none";
+}
+
+function submitGame(){
+  let name = gameName.value;
+  let file = gameFile.files[0];
+  let thumb = thumbFile.files[0];
+
+  if(!file){
+    alert("Pick a file");
+    return;
+  }
+
+  let reader = new FileReader();
+  let treader = new FileReader();
+
+  reader.onload=e=>{
+
+    if(thumb){
+      treader.onload=t=>{
+        saveGame(name, e.target.result, t.target.result);
+      }
+      treader.readAsDataURL(thumb);
+    } else {
+      saveGame(name, e.target.result, "");
+    }
+  }
+
+  reader.readAsText(file);
+}
+
+function saveGame(name, html, thumb){
+  db.collection("games").add({
+    name:name,
+    html:html,
+    thumb:thumb
+  });
+
+  closeUpload();
+}
+
+/* ================= GAMES ================= */
+function loadGames(){
+  db.collection("games").onSnapshot(snap=>{
+    gameGrid.innerHTML="";
+
+    snap.forEach(doc=>{
+      let g=doc.data();
+
+      let card=document.createElement("div");
+      card.className="card";
+
+      card.innerHTML=`
+        <img src="${g.thumb || ''}">
+        <div>${g.name}</div>
+      `;
+
+      card.onclick=()=>{
+        show("play");
+        frame.src=URL.createObjectURL(new Blob([g.html],{type:"text/html"}));
+      };
+
+      gameGrid.appendChild(card);
+    });
+  });
+}
+
+/* ================= CHAT ================= */
+function sendMsg(){
+  db.collection("chat").add({
+    user:currentUser,
+    msg:msg.value,
+    time:Date.now()
+  });
+  msg.value="";
+}
+
+function loadChat(){
+  db.collection("chat").orderBy("time")
+  .onSnapshot(snap=>{
+    chatBox.innerHTML="";
+    snap.forEach(d=>{
+      let c=d.data();
+      chatBox.innerHTML+=c.user+": "+c.msg+"<br>";
+    });
+  });
+}
+
+/* ================= PROFILE ================= */
+function saveBio(){
+  db.collection("users").doc(currentUser).set({
+    bio:bio.value
+  },{merge:true});
+}
+
+/* ================= ANNOUNCEMENT ================= */
+function loadAnnouncement(){
+  db.collection("global").doc("announcement")
+  .onSnapshot(doc=>{
+    annBar.innerText = doc.exists ? doc.data().text : "No announcements";
+  });
+}
+
+/* ================= ONLINE ================= */
+function setOnline(){
+  rtdb.ref("online/"+currentUser).set(true);
+  rtdb.ref("online/"+currentUser).onDisconnect().remove();
+}
+
+function trackOnline(){
+  rtdb.ref("online").on("value",snap=>{
+    let d=snap.val()||{};
+    count.innerText=Object.keys(d).length;
+  });
+}
+</script>
+
+</body>
+</html>
