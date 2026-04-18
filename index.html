@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Game Hub Fixed</title>
+
+<style>
+body{
+  margin:0;
+  font-family:Arial;
+  background:#111;
+  color:white;
+  transition:1s;
+}
+
+#auth{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
+}
+
+.box{
+  background:#222;
+  padding:20px;
+  width:300px;
+  border-radius:10px;
+}
+
+input,button,textarea{
+  width:100%;
+  margin:5px 0;
+  padding:8px;
+}
+
+#main{
+  display:none;
+  flex-direction:column;
+  height:100vh;
+}
+
+#topbar{
+  background:black;
+  padding:10px;
+  display:flex;
+  gap:10px;
+}
+
+.page{ display:none; padding:20px; }
+
+#gameGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+  gap:10px;
+}
+
+.card{
+  background:#333;
+  border-radius:10px;
+  overflow:hidden;
+  cursor:pointer;
+  text-align:center;
+}
+
+.card img{
+  width:100%;
+  height:100px;
+  object-fit:cover;
+}
+
+iframe{
+  width:100%;
+  height:70vh;
+  border:none;
+}
+
+#fsBtn{
+  position:absolute;
+  right:20px;
+  top:80px;
+}
+</style>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="auth">
+  <div class="box">
+    <h2>Login</h2>
+    <input id="username" placeholder="Username">
+    <input id="password" type="password">
+
+    <button onclick="signup()">Sign Up</button>
+    <button onclick="login()">Login</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+<div id="topbar">
+  <button onclick="show('home')">Home</button>
+  <button onclick="show('games')">Games</button>
+  <button onclick="toggleRainbow()">Rainbow</button>
+  <button id="adminBtn" onclick="openAdmin()">Admin</button>
+  <button onclick="logout()">Logout</button>
+</div>
+
+<!-- HOME -->
+<div id="home" class="page">
+  <h2>Online: <span id="count">0</span></h2>
+</div>
+
+<!-- GAMES -->
+<div id="games" class="page">
+  <h2>Games</h2>
+  <div id="gameGrid"></div>
+</div>
+
+<!-- PLAY -->
+<div id="play" class="page">
+  <button id="fsBtn" onclick="fullscreen()">Fullscreen</button>
+  <iframe id="frame"></iframe>
+</div>
+
+<!-- ADMIN -->
+<div id="admin" class="page">
+  <h2>OWNER PANEL</h2>
+
+  <input id="gameFile" type="file">
+  <input id="thumbFile" type="file">
+
+  <button onclick="uploadGame()">Upload Game</button>
+</div>
+
+</div>
+
+<script>
+// FIREBASE
+const firebaseConfig = {
+  apiKey: "AIzaSyCa_6ibc9IYW2U_4NRaPUuwsQ9INOgzSlM",
+  authDomain: "hubby-c5ff6.firebaseapp.com",
+  projectId: "hubby-c5ff6",
+  storageBucket: "hubby-c5ff6.firebasestorage.app",
+  messagingSenderId: "1062150257550",
+  appId: "1:1062150257550:web:3d3adfc1276233086ac2df",
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.firestore();
+const rtdb = firebase.database();
+
+const OWNER = "owner";
+let currentUser = "";
+let rainbowOn = false;
+let rainbowInt;
+
+/* LOGIN */
+function makeEmail(u){ return u+"@gamehub.com"; }
+
+function signup(){
+  auth.createUserWithEmailAndPassword(makeEmail(username.value),password.value);
+}
+
+function login(){
+  auth.signInWithEmailAndPassword(makeEmail(username.value),password.value);
+}
+
+function logout(){ auth.signOut(); }
+
+/* AUTH */
+auth.onAuthStateChanged(user=>{
+  if(!user) return;
+
+  currentUser = user.email.split("@")[0];
+
+  document.getElementById("auth").style.display="none";
+  document.getElementById("main").style.display="flex";
+
+  const adminBtn = document.getElementById("adminBtn");
+  if(adminBtn && currentUser !== OWNER){
+    adminBtn.style.display="none";
+  }
+
+  setOnline();
+  loadGames();
+  trackOnline();
+
+  show("home");
+});
+
+/* NAV */
+function show(p){
+  document.querySelectorAll(".page").forEach(x=>{
+    x.style.display="none";
+  });
+
+  document.getElementById(p).style.display="block";
+
+  if(p !== "play"){
+    frame.src="";
+  }
+}
+
+/* FULLSCREEN */
+function fullscreen(){
+  frame.requestFullscreen();
+}
+
+/* 🌈 RAINBOW (FIXED OLD STYLE) */
+function toggleRainbow(){
+  rainbowOn = !rainbowOn;
+
+  if(rainbowOn){
+    let i=0;
+    rainbowInt=setInterval(()=>{
+      document.body.style.background =
+        "hsl(" + i + ",100%,20%)";
+      i+=2;
+    },30);
+  } else {
+    clearInterval(rainbowInt);
+    document.body.style.background="#111";
+  }
+}
+
+/* ADMIN */
+function openAdmin(){
+  if(currentUser !== OWNER){
+    alert("No access");
+    return;
+  }
+  show("admin");
+}
+
+/* UPLOAD GAME + THUMBNAIL */
+function uploadGame(){
+  if(currentUser !== OWNER) return;
+
+  let g = gameFile.files[0];
+  let t = thumbFile.files[0];
+
+  let rg = new FileReader();
+  let rt = new FileReader();
+
+  rg.onload = e=>{
+    rt.onload = tt=>{
+      db.collection("games").add({
+        name:g.name,
+        html:e.target.result,
+        thumb:tt.target.result || ""
+      });
+    };
+
+    if(t) rt.readAsDataURL(t);
+    else rt.onload({target:{result:""}});
+  };
+
+  rg.readAsText(g);
+}
+
+/* LOAD GAMES */
+function loadGames(){
+  db.collection("games").onSnapshot(snap=>{
+    gameGrid.innerHTML="";
+
+    snap.forEach(doc=>{
+      let g=doc.data();
+
+      let card=document.createElement("div");
+      card.className="card";
+
+      card.innerHTML=`
+        <img src="${g.thumb || 'https://via.placeholder.com/150'}">
+        <div>${g.name}</div>
+      `;
+
+      card.onclick=()=>{
+        show("play");
+
+        let blob=new Blob([g.html],{type:"text/html"});
+        frame.src=URL.createObjectURL(blob);
+      };
+
+      gameGrid.appendChild(card);
+    });
+  });
+}
+
+/* ONLINE PLAYERS */
+function setOnline(){
+  rtdb.ref("online/"+currentUser).set(true);
+  rtdb.ref("online/"+currentUser).onDisconnect().remove();
+}
+
+function trackOnline(){
+  rtdb.ref("online").on("value",snap=>{
+    let d=snap.val()||{};
+    count.innerText=Object.keys(d).length;
+  });
+}
+</script>
+
+</body>
+</html>
